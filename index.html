@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a0a; overflow:hidden; }
+canvas { display:block; }
+#label { position:fixed; bottom:40px; width:100%; text-align:center; 
+  font-family:'Georgia',serif; color:#c9a961; font-size:14px; 
+  letter-spacing:4px; }
+</style>
+</head>
+<body>
+<div id="label">BOREAS · COMPASS BEZEL</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+const W = window.innerWidth, H = window.innerHeight;
+const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 100);
+camera.position.set(0, 8, 0);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// Освещение
+const ambient = new THREE.AmbientLight(0x222222);
+scene.add(ambient);
+const gold = new THREE.PointLight(0xc9a961, 2, 20);
+gold.position.set(0, 5, 0);
+scene.add(gold);
+const rim = new THREE.PointLight(0x4466ff, 1, 15);
+rim.position.set(-4, 2, -4);
+scene.add(rim);
+
+// Безель — кольцо
+const bezelGeo = new THREE.TorusGeometry(3.5, 0.5, 16, 80);
+const bezelMat = new THREE.MeshStandardMaterial({
+  color:0x1a1a1a, metalness:0.9, roughness:0.2
+});
+const bezel = new THREE.Mesh(bezelGeo, bezelMat);
+bezel.rotation.x = Math.PI/2;
+scene.add(bezel);
+
+// Канал
+const channelGeo = new THREE.TorusGeometry(3.5, 0.35, 8, 80);
+const channelMat = new THREE.MeshStandardMaterial({
+  color:0x0a0a0a, metalness:0.5, roughness:0.5
+});
+const channel = new THREE.Mesh(channelGeo, channelMat);
+channel.rotation.x = Math.PI/2;
+scene.add(channel);
+
+// Зубчатые кольца (боковые) — визуализация
+function makeGearRing(radius, tubeR, color) {
+  const geo = new THREE.TorusGeometry(radius, tubeR, 4, 64);
+  const mat = new THREE.MeshStandardMaterial({
+    color:color, metalness:0.95, roughness:0.1
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = Math.PI/2;
+  return mesh;
+}
+
+const gearLeft = makeGearRing(3.5, 0.06, 0xc9a961);
+gearLeft.position.y = 0.2;
+scene.add(gearLeft);
+
+const gearRight = makeGearRing(3.5, 0.06, 0xc9a961);
+gearRight.position.y = -0.2;
+scene.add(gearRight);
+
+// 4 шарика N E S W
+const ballMat = new THREE.MeshStandardMaterial({
+  color:0xcc0000, metalness:0.3, roughness:0.1,
+  emissive:0x440000
+});
+const gearMat = new THREE.MeshStandardMaterial({
+  color:0xc9a961, metalness:0.95, roughness:0.05
+});
+
+const directions = [
+  {angle:0,    label:'N'},
+  {angle:Math.PI/2, label:'E'},
+  {angle:Math.PI,   label:'S'},
+  {angle:3*Math.PI/2, label:'W'}
+];
+
+const balls = [];
+const gearRings = [];
+
+directions.forEach(d => {
+  const x = Math.sin(d.angle) * 3.5;
+  const z = Math.cos(d.angle) * 3.5;
+
+  // Шарик
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 32, 32),
+    ballMat
+  );
+  ball.position.set(x, 0, z);
+  scene.add(ball);
+  balls.push({mesh:ball, angle:d.angle, baseAngle:d.angle});
+
+  // Зубчатое кольцо по экватору
+  const gear = new THREE.Mesh(
+    new THREE.TorusGeometry(0.22, 0.04, 4, 24),
+    gearMat
+  );
+  gear.position.set(x, 0, z);
+  scene.add(gear);
+  gearRings.push({mesh:gear, angle:d.angle});
+});
+
+// Сапфировое стекло сверху
+const glassGeo = new THREE.RingGeometry(3.0, 4.0, 64);
+const glassMat = new THREE.MeshStandardMaterial({
+  color:0x88aaff, metalness:0, roughness:0,
+  transparent:true, opacity:0.15,
+  side:THREE.DoubleSide
+});
+const glass = new THREE.Mesh(glassGeo, glassMat);
+glass.rotation.x = -Math.PI/2;
+glass.position.y = 0.3;
+scene.add(glass);
+
+// Touch управление
+let touchStart = {x:0, y:0};
+let rotY = 0, rotX = 0.3;
+let targetRotY = 0, targetRotX = 0.3;
+
+renderer.domElement.addEventListener('touchstart', e => {
+  touchStart.x = e.touches[0].clientX;
+  touchStart.y = e.touches[0].clientY;
+});
+
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const dx = e.touches[0].clientX - touchStart.x;
+  const dy = e.touches[0].clientY - touchStart.y;
+  targetRotY += dx * 0.01;
+  targetRotX += dy * 0.01;
+  targetRotX = Math.max(-0.1, Math.min(1.2, targetRotX));
+  touchStart.x = e.touches[0].clientX;
+  touchStart.y = e.touches[0].clientY;
+}, {passive:false});
+
+// Анимация
+let t = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.01;
+
+  // Плавное следование камеры
+  rotY += (targetRotY - rotY) * 0.08;
+  rotX += (targetRotX - rotX) * 0.08;
+
+  // Позиция камеры
+  const r = 9;
+  camera.position.x = Math.sin(rotY) * Math.cos(rotX) * r;
+  camera.position.y = Math.sin(rotX) * r;
+  camera.position.z = Math.cos(rotY) * Math.cos(rotX) * r;
+  camera.lookAt(0, 0, 0);
+
+  // Медленное вращение шариков по каналу
+  balls.forEach((b, i) => {
+    b.angle += 0.005;
+    const x = Math.sin(b.angle) * 3.5;
+    const z = Math.cos(b.angle) * 3.5;
+    b.mesh.position.set(x, 0, z);
+    gearRings[i].mesh.position.set(x, 0, z);
+    // Вращение шарика вокруг своей оси
+    b.mesh.rotation.y += 0.05;
+    // Зубчатое кольцо перпендикулярно движению
+    gearRings[i].mesh.rotation.x = Math.PI/2;
+    gearRings[i].mesh.rotation.z = b.angle;
+  });
+
+  // Пульсация золотого света
+  gold.intensity = 1.5 + Math.sin(t) * 0.5;
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
